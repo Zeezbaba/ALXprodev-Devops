@@ -13,4 +13,4 @@ weight=$(jq '.weight' data.json | awk '{print $1 / 10}') # Convert hectograms to
 type=$(jq -r '.types[0].type.name' data.json | sed 's/.*/\u&/')
 
 # Print formatted output
-echo "$name is of type $type, weighs ${weight}kg and is ${height}m tall."
+echo "$name is of type $type, weighs ${weight}kg, and is ${height}m tall."
