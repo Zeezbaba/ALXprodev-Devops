@@ -9,22 +9,39 @@ mkdir -p pokemon_data
 # Define the list of Pokémon
 pokemon_list=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
 
-# Function to fetch a single Pokémon (with retries)
+# Function to fetch a single Pokémon with timeout and kill support
 fetch_pokemon() {
   local pokemon=$1
   local attempts=0
   local max_attempts=3
+  local timeout=10
 
   echo "Fetching data for $pokemon..."
 
   while [ $attempts -lt $max_attempts ]; do
-    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json"
-    if [ $? -eq 0 ]; then
+    ((attempts++))
+
+    # Start curl in background and get its PID
+    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json" &
+    pid=$!
+
+    # Wait up to $timeout seconds
+    SECONDS=0
+    while kill -0 "$pid" 2>/dev/null; do
+      if [ $SECONDS -ge $timeout ]; then
+        echo "Request timed out for $pokemon. Killing process $pid."
+        kill -9 "$pid" 2>/dev/null
+        break
+      fi
+      sleep 1
+    done
+
+    # Check if file was successfully saved
+    if [ -s "pokemon_data/${pokemon}.json" ]; then
       echo "Saved data to pokemon_data/${pokemon}.json ✅"
       return 0
     else
-      ((attempts++))
-      echo "Attempt $attempts failed for $pokemon. Retrying in 2s..."
+      echo "Attempt $attempts failed for $pokemon. Retrying..."
       sleep 2
     fi
   done
@@ -32,18 +49,14 @@ fetch_pokemon() {
   echo "[$(date)] Failed to fetch data for $pokemon after $max_attempts attempts ❌" >> errors.txt
 }
 
-# Export the function so subshells can use it
 export -f fetch_pokemon
 
-# Export error log path
-export ERROR_LOG="errors.txt"
-
-# Fetch in parallel
+# Fetch each Pokémon in parallel
 for pokemon in "${pokemon_list[@]}"; do
-  fetch_pokemon "$pokemon" &
+  bash -c "fetch_pokemon $pokemon" &
 done
 
-# Wait for all background jobs to finish
+# Wait for all background fetches to complete
 wait
 
 echo "✅ All fetch tasks completed."
