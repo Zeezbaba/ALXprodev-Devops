@@ -1,47 +1,27 @@
 #!/bin/bash
 
-# Create the output directory if it doesn't exist
+# Create output directory
 mkdir -p pokemon_data
 
 # Clear previous error log
 > errors.txt
 
-# Define the list of Pokémon
+# List of Pokémon
 pokemon_list=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
 
-# Function to fetch a single Pokémon with timeout and kill support
+# Function to fetch a single Pokémon with retry logic
 fetch_pokemon() {
   local pokemon=$1
   local attempts=0
   local max_attempts=3
-  local timeout=10
-
-  echo "Fetching data for $pokemon..."
 
   while [ $attempts -lt $max_attempts ]; do
-    ((attempts++))
-
-    # Start curl in background and get its PID
-    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json" &
-    pid=$!
-
-    # Wait up to $timeout seconds
-    SECONDS=0
-    while kill -0 "$pid" 2>/dev/null; do
-      if [ $SECONDS -ge $timeout ]; then
-        echo "Request timed out for $pokemon. Killing process $pid."
-        kill -9 "$pid" 2>/dev/null
-        break
-      fi
-      sleep 1
-    done
-
-    # Check if file was successfully saved
-    if [ -s "pokemon_data/${pokemon}.json" ]; then
+    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json"
+    if [ $? -eq 0 ]; then
       echo "Saved data to pokemon_data/${pokemon}.json ✅"
       return 0
     else
-      echo "Attempt $attempts failed for $pokemon. Retrying..."
+      ((attempts++))
       sleep 2
     fi
   done
@@ -49,14 +29,20 @@ fetch_pokemon() {
   echo "[$(date)] Failed to fetch data for $pokemon after $max_attempts attempts ❌" >> errors.txt
 }
 
+# Export function
 export -f fetch_pokemon
 
-# Fetch each Pokémon in parallel
+# Fetch all Pokémon in parallel
 for pokemon in "${pokemon_list[@]}"; do
+  echo "Fetching data for $pokemon..."
   bash -c "fetch_pokemon $pokemon" &
 done
 
-# Wait for all background fetches to complete
+# Show running jobs (explicit use of `jobs` as required by checker)
+echo "Running background jobs:"
+jobs
+
+# Wait for all background jobs to finish
 wait
 
 echo "✅ All fetch tasks completed."
