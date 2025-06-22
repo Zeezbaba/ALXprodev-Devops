@@ -6,22 +6,41 @@ mkdir -p pokemon_data
 # Clear previous error log
 > errors.txt
 
-# List of Pokémon
+# Pokémon list
 pokemon_list=("bulbasaur" "ivysaur" "venusaur" "charmander" "charmeleon")
 
-# Function to fetch a single Pokémon with retry logic
+# Function to fetch Pokémon data with timeout + kill logic
 fetch_pokemon() {
   local pokemon=$1
   local attempts=0
   local max_attempts=3
+  local timeout=10
 
   while [ $attempts -lt $max_attempts ]; do
-    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json"
-    if [ $? -eq 0 ]; then
+    ((attempts++))
+    echo "Attempt $attempts: Fetching data for $pokemon..."
+
+    # Start curl in background
+    curl -s -f "https://pokeapi.co/api/v2/pokemon/$pokemon" -o "pokemon_data/${pokemon}.json" &
+    pid=$!
+
+    # Monitor process for timeout
+    SECONDS=0
+    while kill -0 "$pid" 2>/dev/null; do
+      if [ $SECONDS -ge $timeout ]; then
+        echo "Timeout: Killing curl process for $pokemon (PID $pid)"
+        kill -9 "$pid" 2>/dev/null
+        break
+      fi
+      sleep 1
+    done
+
+    # If file is saved, break loop
+    if [ -s "pokemon_data/${pokemon}.json" ]; then
       echo "Saved data to pokemon_data/${pokemon}.json ✅"
-      return 0
+      return
     else
-      ((attempts++))
+      echo "Failed attempt $attempts for $pokemon. Retrying..."
       sleep 2
     fi
   done
@@ -29,20 +48,21 @@ fetch_pokemon() {
   echo "[$(date)] Failed to fetch data for $pokemon after $max_attempts attempts ❌" >> errors.txt
 }
 
-# Export function
+# Export for subshell
 export -f fetch_pokemon
 
-# Fetch all Pokémon in parallel
+# Array to hold background PIDs
+pids=()
+
+# Start all fetches in parallel
 for pokemon in "${pokemon_list[@]}"; do
-  echo "Fetching data for $pokemon..."
   bash -c "fetch_pokemon $pokemon" &
+  pids+=($!)
 done
 
-# Show running jobs (explicit use of `jobs` as required by checker)
-echo "Running background jobs:"
-jobs
-
-# Wait for all background jobs to finish
-wait
+# Wait for all background jobs
+for pid in "${pids[@]}"; do
+  wait "$pid"
+done
 
 echo "✅ All fetch tasks completed."
